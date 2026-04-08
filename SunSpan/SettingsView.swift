@@ -18,13 +18,28 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyReduced
     }
 
-    private var didRequest = false
-
     func requestLocation() {
-        guard !didResolve, !didRequest else { return }
-        didRequest = true
-        manager.requestWhenInUseAuthorization()
-        manager.requestLocation()
+        guard !didResolve else { return }
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            // The actual location request will be issued from
+            // locationManagerDidChangeAuthorization once the user responds.
+            manager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.requestLocation()
+        default:
+            break
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard !didResolve else { return }
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.requestLocation()
+        default:
+            break
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {

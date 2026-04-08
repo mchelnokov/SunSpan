@@ -17,3 +17,6 @@ Package.resolved
 
 ## CocoaPods
 Pods/
+
+## Claude Code
+.claude/
