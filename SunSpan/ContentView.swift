@@ -88,6 +88,7 @@ struct ContentView: View {
                     onDone: flipToChart,
                     onCancel: flipToChartDiscardingChanges
                 )
+                .frame(width: geo.size.width, height: geo.size.height)
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
                 .opacity(flipAngle > 90 ? 1 : 0)
 
@@ -122,6 +123,7 @@ struct ContentView: View {
                     .padding(.trailing, 14)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+                .frame(width: geo.size.width, height: geo.size.height)
                 .opacity(flipAngle < 90 ? 1 : 0)
             }
             .rotation3DEffect(.degrees(flipAngle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)

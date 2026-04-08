@@ -350,48 +350,41 @@ struct DaylightChartView: View {
     private func drawDay(context: inout GraphicsContext, day: DayLightInfo, index: Int, layout: ChartLayout) {
         let rect = layout.fullDayRect(index)
 
-        // Polar day
+        // Polar day — sun never sets, fill with full day color.
         if day.dayLengthHours >= 24 {
             context.fill(Path(rect), with: .color(Self.dayColor), style: Self.noAA)
             return
         }
-        // Polar night with no twilight
-        if day.dayLengthHours <= 0
-            && day.astronomicalDawn == nil && day.nauticalDawn == nil && day.civilDawn == nil {
-            return // background is already night
-        }
 
-        // Build 8-stop gradient covering all twilight levels. Intermediate colors
-        // give structure that remains visible even when astronomical twilight
-        // extends past midnight and clamps to the chart edge.
-        // Fall back through levels if a deeper twilight level is nil (polar winter).
-        let astroDawn = day.astronomicalDawn ?? day.nauticalDawn ?? day.civilDawn ?? day.sunrise
-        let nautDawn  = day.nauticalDawn ?? day.civilDawn ?? day.sunrise
-        let civDawn   = day.civilDawn ?? day.sunrise
-        let sr        = day.sunrise ?? day.civilDawn ?? day.nauticalDawn ?? day.astronomicalDawn
+        // Build gradient stops only for twilight levels the sun actually
+        // reaches. In polar regions inner events (sunrise, civil dawn, …)
+        // drop out from the inside as the sun stays lower, and dawn/dusk
+        // pairs always disappear together (same hour-angle calculation),
+        // so the remaining stops are naturally symmetric. The brightest
+        // color in the resulting gradient never exceeds what the sky
+        // actually achieves on this day — e.g. when sunrise is nil but
+        // civil dawn exists, the two civilColor stops form a flat plateau
+        // through midday instead of a false dayColor band.
+        //
+        // Stop locations stay in minutes-from-midnight space normalized
+        // by 1440. They may fall outside [0, 1] when twilight extends
+        // past midnight at high latitudes; Core Graphics interpolates
+        // the chart-edge color correctly in that case.
 
-        let ss        = day.sunset ?? day.civilDusk ?? day.nauticalDusk ?? day.astronomicalDusk
-        let civDusk   = day.civilDusk ?? day.sunset
-        let nautDusk  = day.nauticalDusk ?? day.civilDusk ?? day.sunset
-        let astroDusk = day.astronomicalDusk ?? day.nauticalDusk ?? day.civilDusk ?? day.sunset
-
-        guard let aD = astroDawn, let nD = nautDawn, let cD = civDawn, let srV = sr,
-              let ssV = ss, let cDu = civDusk, let nDu = nautDusk, let aDu = astroDusk else { return }
-
-        // Do NOT clamp — stops outside [0,1] let Core Graphics interpolate the
-        // correct color at the chart edges when twilight extends past midnight.
         func loc(_ v: Double) -> CGFloat { CGFloat(v / 1440.0) }
 
-        let stops: [Gradient.Stop] = [
-            .init(color: Self.nightColor,    location: loc(aD)),
-            .init(color: Self.nauticalColor, location: loc(nD)),
-            .init(color: Self.civilColor,    location: loc(cD)),
-            .init(color: Self.dayColor,      location: loc(srV)),
-            .init(color: Self.dayColor,      location: loc(ssV)),
-            .init(color: Self.civilColor,    location: loc(cDu)),
-            .init(color: Self.nauticalColor, location: loc(nDu)),
-            .init(color: Self.nightColor,    location: loc(aDu)),
-        ]
+        var stops: [Gradient.Stop] = []
+        if let v = day.astronomicalDawn { stops.append(.init(color: Self.nightColor,    location: loc(v))) }
+        if let v = day.nauticalDawn     { stops.append(.init(color: Self.nauticalColor, location: loc(v))) }
+        if let v = day.civilDawn        { stops.append(.init(color: Self.civilColor,    location: loc(v))) }
+        if let v = day.sunrise          { stops.append(.init(color: Self.dayColor,      location: loc(v))) }
+        if let v = day.sunset           { stops.append(.init(color: Self.dayColor,      location: loc(v))) }
+        if let v = day.civilDusk        { stops.append(.init(color: Self.civilColor,    location: loc(v))) }
+        if let v = day.nauticalDusk     { stops.append(.init(color: Self.nauticalColor, location: loc(v))) }
+        if let v = day.astronomicalDusk { stops.append(.init(color: Self.nightColor,    location: loc(v))) }
+
+        // No events at all — deep polar night — leave the black background.
+        guard !stops.isEmpty else { return }
 
         let gradient = Gradient(stops: stops)
         let (startPt, endPt) = layout.gradientPoints(for: rect)
