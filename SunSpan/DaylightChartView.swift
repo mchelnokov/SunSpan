@@ -87,10 +87,9 @@ struct DaylightChartView: View {
     let data: [DayLightInfo]
     let year: Int
     let timeZone: TimeZone
-    var onDaySelected: ((DayLightInfo) -> Void)?
+    var dstEnabled: Bool = true
 
     @State private var selectedIndex: Int?
-    @State private var dragLocation: CGPoint = .zero
 
     static let nightColor = Color(red: 0.02, green: 0.02, blue: 0.04)
     static let nauticalColor = Color(red: 0.15, green: 0.25, blue: 0.42)
@@ -156,7 +155,7 @@ struct DaylightChartView: View {
 
                 // DST-offset dashed hour lines
                 // Shows where 6/12/18 standard time falls during DST periods
-                if !data.isEmpty {
+                if dstEnabled, !data.isEmpty {
                     let standardOffset = timeZone.secondsFromGMT(for: data[0].date)
                     var dstRangeStart: Int?
                     var dstOffsetSeconds: Int = 0
@@ -242,13 +241,9 @@ struct DaylightChartView: View {
                         let idx = layout.dayIndex(at: value.location)
                         if idx >= 0 && idx < data.count {
                             selectedIndex = idx
-                            dragLocation = value.location
                         }
                     }
                     .onEnded { _ in
-                        if let idx = selectedIndex, idx >= 0, idx < data.count {
-                            onDaySelected?(data[idx])
-                        }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                             selectedIndex = nil
                         }

@@ -6,11 +6,11 @@ import CoreLocation
 
 // MARK: - Location Manager
 
-@Observable
-class LocationManager: NSObject, CLLocationManagerDelegate {
+class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
-    var lastLocation: CLLocation?
-    var didResolve = false
+    @Published var lastLocation: CLLocation?
+    @Published var didResolve = false
+    @Published var locationUpdateCount = 0
 
     override init() {
         super.init()
@@ -19,11 +19,8 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     func requestLocation() {
-        guard !didResolve else { return }
         switch manager.authorizationStatus {
         case .notDetermined:
-            // The actual location request will be issued from
-            // locationManagerDidChangeAuthorization once the user responds.
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
             manager.requestLocation()
@@ -33,7 +30,6 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        guard !didResolve else { return }
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             manager.requestLocation()
@@ -46,6 +42,7 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
         guard let location = locations.first else { return }
         lastLocation = location
         didResolve = true
+        locationUpdateCount += 1
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -56,7 +53,7 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
 // MARK: - Settings View
 
 struct SettingsView: View {
-    var state: AppState
+    @ObservedObject var state: AppState
     /// Incremented by the parent each time settings becomes visible, so
     /// drafts re-sync from the latest AppState (e.g. after a device-location
     /// resolution that happened while settings was closed).
@@ -70,58 +67,80 @@ struct SettingsView: View {
     @State private var draftTimeZone: TimeZone = .current
     @State private var draftLocationName: String = ""
     @State private var draftYear: Int = 2025
+    @State private var draftDSTEnabled: Bool = true
 
-    @State private var mapPosition: MapCameraPosition = .automatic
     @State private var pinCoordinate: CLLocationCoordinate2D?
     @State private var isResolving = false
+    @State private var awaitingDeviceLocation = false
 
     private static let dayColor = Color(red: 0.53, green: 0.81, blue: 0.98)
     private static let nightColor = Color(red: 0.02, green: 0.02, blue: 0.04)
     private static let cardBackground = Color.white.opacity(0.15)
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Self.dayColor, Self.nightColor],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        GeometryReader { geo in
+            let isLandscape = geo.size.width > geo.size.height
 
-            VStack(spacing: 0) {
-                // Top bar
-                HStack {
-                    Button("Cancel") { cancel() }
-                    Spacer()
-                    Text("Settings")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                    Spacer()
-                    if isResolving {
-                        ProgressView()
-                            .tint(.white)
+            ZStack {
+                LinearGradient(
+                    colors: [Self.dayColor, Self.nightColor],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    // Top bar
+                    HStack {
+                        Button("Cancel") { cancel() }
+                        Spacer()
+                        Text("Settings")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                        Spacer()
+                        if isResolving {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Button("Done") { commit() }
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+
+                    if isLandscape {
+                        HStack(spacing: 16) {
+                            locationCard
+                            VStack(spacing: 16) {
+                                yearCard
+                                dstCard
+                                infoFooter
+                                Spacer()
+                            }
+                            .frame(width: 260)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     } else {
-                        Button("Done") { commit() }
-                            .fontWeight(.semibold)
+                        VStack(spacing: 16) {
+                            locationCard
+                                .frame(maxHeight: .infinity)
+                            yearCard
+                            dstCard
+                            infoFooter
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     }
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
-
-                VStack(spacing: 16) {
-                    locationCard
-                        .frame(maxHeight: .infinity)
-                    yearCard
-                    infoFooter
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
             }
         }
         .onAppear { syncDraftsFromState() }
-        .onChange(of: openCounter) { syncDraftsFromState() }
+        .onChange(of: openCounter) { _ in syncDraftsFromState() }
+        .onChange(of: state.locationManager.locationUpdateCount) { _ in onDeviceLocationResolved() }
     }
 
     private func syncDraftsFromState() {
@@ -130,13 +149,9 @@ struct SettingsView: View {
         draftTimeZone = state.selectedTimeZone
         draftLocationName = state.locationName
         draftYear = state.year
+        draftDSTEnabled = state.dstEnabled
 
-        let coord = CLLocationCoordinate2D(latitude: draftLatitude, longitude: draftLongitude)
-        pinCoordinate = coord
-        mapPosition = .region(MKCoordinateRegion(
-            center: coord,
-            span: MKCoordinateSpan(latitudeDelta: 20, longitudeDelta: 20)
-        ))
+        pinCoordinate = CLLocationCoordinate2D(latitude: draftLatitude, longitude: draftLongitude)
     }
 
     private func commit() {
@@ -145,6 +160,7 @@ struct SettingsView: View {
         state.selectedTimeZone = draftTimeZone
         state.locationName = draftLocationName
         state.year = draftYear
+        state.dstEnabled = draftDSTEnabled
         onDone?()
     }
 
@@ -179,21 +195,25 @@ struct SettingsView: View {
             }
 
             TappableMapView(
-                position: $mapPosition,
                 pinCoordinate: pinCoordinate,
                 pinTitle: draftLocationName,
                 onCoordinateSelected: { coord in
                     applyCoordinate(coord)
-                    withAnimation {
-                        mapPosition = .region(MKCoordinateRegion(
-                            center: coord,
-                            span: MKCoordinateSpan(latitudeDelta: 20, longitudeDelta: 20)
-                        ))
-                    }
                 }
             )
             .frame(minHeight: 220, maxHeight: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    jumpToCurrentLocation()
+                } label: {
+                    Image(systemName: "location.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black, radius: 3)
+                }
+                .padding(8)
+            }
             .overlay(alignment: .bottom) {
                 Text("Tap the map to set location")
                     .font(.caption2)
@@ -206,6 +226,22 @@ struct SettingsView: View {
         }
         .padding(16)
         .background(Self.cardBackground, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private func jumpToCurrentLocation() {
+        if let location = state.locationManager.lastLocation {
+            let coord = location.coordinate
+            applyCoordinate(coord)
+        } else {
+            awaitingDeviceLocation = true
+            state.locationManager.requestLocation()
+        }
+    }
+
+    private func onDeviceLocationResolved() {
+        guard awaitingDeviceLocation, state.locationManager.lastLocation != nil else { return }
+        awaitingDeviceLocation = false
+        jumpToCurrentLocation()
     }
 
     private func applyCoordinate(_ coordinate: CLLocationCoordinate2D) {
@@ -221,13 +257,15 @@ struct SettingsView: View {
         // Cancel any in-flight geocode so rapid taps don't pile up calls.
         state.geocoder.cancelGeocode()
         state.geocoder.reverseGeocodeLocation(location) { placemarks, _ in
-            isResolving = false
-            if let placemark = placemarks?.first {
-                draftTimeZone = placemark.timeZone ?? TimeZone(secondsFromGMT: Int(round(coordinate.longitude / 15)) * 3600)!
-                draftLocationName = AppState.formatPlacemarkName(placemark) ?? String(localized: "Custom")
-            } else {
-                draftTimeZone = TimeZone(secondsFromGMT: Int(round(coordinate.longitude / 15)) * 3600)!
-                draftLocationName = String(localized: "Custom")
+            DispatchQueue.main.async {
+                isResolving = false
+                if let placemark = placemarks?.first {
+                    draftTimeZone = placemark.timeZone ?? TimeZone(secondsFromGMT: Int(round(coordinate.longitude / 15)) * 3600)!
+                    draftLocationName = AppState.formatPlacemarkName(placemark) ?? String(localized: "Custom")
+                } else {
+                    draftTimeZone = TimeZone(secondsFromGMT: Int(round(coordinate.longitude / 15)) * 3600)!
+                    draftLocationName = String(localized: "Custom")
+                }
             }
         }
     }
@@ -257,14 +295,26 @@ struct SettingsView: View {
         .background(Self.cardBackground, in: RoundedRectangle(cornerRadius: 14))
     }
 
+    // MARK: - DST Card
+
+    private var dstCard: some View {
+        Toggle(isOn: $draftDSTEnabled) {
+            Label("Daylight Saving Time", systemImage: "clock.arrow.2.circlepath")
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundStyle(.white.opacity(0.8))
+        }
+        .tint(Self.dayColor)
+        .padding(16)
+        .background(Self.cardBackground, in: RoundedRectangle(cornerRadius: 14))
+    }
+
     // MARK: - Info Footer
 
     private var infoFooter: some View {
-        HStack(spacing: 12) {
-            infoItem(formatDMS(draftLatitude, isLat: true))
-            infoItem(formatDMS(draftLongitude, isLat: false))
-            infoItem(utcOffsetString)
-            infoItem(draftTimeZone.identifier.replacingOccurrences(of: "_", with: " "))
+        VStack(spacing: 4) {
+            infoItem("\(formatDMS(draftLatitude, isLat: true))  \(formatDMS(draftLongitude, isLat: false))")
+            infoItem("\(utcOffsetString)  \(draftTimeZone.identifier.replacingOccurrences(of: "_", with: " "))")
         }
         .frame(maxWidth: .infinity)
     }
@@ -292,7 +342,12 @@ struct SettingsView: View {
         let minFull = (abs - Double(deg)) * 60
         let min = Int(minFull)
         let sec = Int((minFull - Double(min)) * 60)
-        let dir = isLat ? (value >= 0 ? "N" : "S") : (value >= 0 ? "E" : "W")
+        let dir: String
+        if isLat {
+            dir = value >= 0 ? String(localized: "N", comment: "Cardinal direction North") : String(localized: "S", comment: "Cardinal direction South")
+        } else {
+            dir = value >= 0 ? String(localized: "E", comment: "Cardinal direction East") : String(localized: "W", comment: "Cardinal direction West")
+        }
         return "\(deg)\u{00B0}\(min)\u{2032}\(sec)\u{2033} \(dir)"
     }
 }
@@ -300,7 +355,6 @@ struct SettingsView: View {
 // MARK: - Map with tap-to-place-pin
 
 struct TappableMapView: UIViewRepresentable {
-    @Binding var position: MapCameraPosition
     var pinCoordinate: CLLocationCoordinate2D?
     var pinTitle: String
     var onCoordinateSelected: (CLLocationCoordinate2D) -> Void
@@ -311,7 +365,7 @@ struct TappableMapView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
-        mapView.mapType = .satellite
+        mapView.mapType = .hybrid
         mapView.isZoomEnabled = true
         mapView.isScrollEnabled = true
         mapView.isRotateEnabled = false
@@ -374,3 +428,4 @@ struct TappableMapView: UIViewRepresentable {
         }
     }
 }
+
