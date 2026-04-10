@@ -20,35 +20,9 @@ struct DayLightInfo: Identifiable {
     let dayLengthHours: Double
 }
 
-struct LocationPreset: Identifiable, Hashable {
-    var id: String { name }
-    let name: String
-    let latitude: Double
-    let longitude: Double
-    let timeZoneId: String
-}
-
 // MARK: - Solar Calculator (NOAA algorithm)
 
 enum SolarCalculator {
-
-    static let presets: [LocationPreset] = [
-        LocationPreset(name: "New York", latitude: 40.7128, longitude: -74.0060, timeZoneId: "America/New_York"),
-        LocationPreset(name: "London", latitude: 51.5074, longitude: -0.1278, timeZoneId: "Europe/London"),
-        LocationPreset(name: "Paris", latitude: 48.8566, longitude: 2.3522, timeZoneId: "Europe/Paris"),
-        LocationPreset(name: "Berlin", latitude: 52.5200, longitude: 13.4050, timeZoneId: "Europe/Berlin"),
-        LocationPreset(name: "Moscow", latitude: 55.7558, longitude: 37.6173, timeZoneId: "Europe/Moscow"),
-        LocationPreset(name: "Tokyo", latitude: 35.6762, longitude: 139.6503, timeZoneId: "Asia/Tokyo"),
-        LocationPreset(name: "Sydney", latitude: -33.8688, longitude: 151.2093, timeZoneId: "Australia/Sydney"),
-        LocationPreset(name: "Singapore", latitude: 1.3521, longitude: 103.8198, timeZoneId: "Asia/Singapore"),
-        LocationPreset(name: "Mumbai", latitude: 19.0760, longitude: 72.8777, timeZoneId: "Asia/Kolkata"),
-        LocationPreset(name: "São Paulo", latitude: -23.5505, longitude: -46.6333, timeZoneId: "America/Sao_Paulo"),
-        LocationPreset(name: "Cape Town", latitude: -33.9249, longitude: 18.4241, timeZoneId: "Africa/Johannesburg"),
-        LocationPreset(name: "Anchorage", latitude: 61.2181, longitude: -149.9003, timeZoneId: "America/Anchorage"),
-        LocationPreset(name: "Reykjavík", latitude: 64.1466, longitude: -21.9426, timeZoneId: "Atlantic/Reykjavik"),
-        LocationPreset(name: "Tromsø", latitude: 69.6492, longitude: 18.9553, timeZoneId: "Europe/Oslo"),
-        LocationPreset(name: "Murmansk", latitude: 68.9585, longitude: 33.0827, timeZoneId: "Europe/Moscow"),
-    ]
 
     // MARK: - Public API
 
@@ -90,9 +64,13 @@ enum SolarCalculator {
         if let sr = sunrise, let ss = sunset {
             dayLength = (ss - sr) / 60.0
         } else {
-            // Polar day or polar night — check noon altitude
-            let jc = julianCentury(jd: jd)
-            let decl = sunDeclination(jc: jc)
+            // Polar day or polar night — check noon altitude using the
+            // declination at actual solar noon, not at the start of the
+            // Julian day, so the result is consistent with the two-pass
+            // sunrise/sunset refinement on boundary days.
+            let noonUTC = noon - tzOffset * 60
+            let jcNoon = julianCentury(jd: jd + noonUTC / 1440.0)
+            let decl = sunDeclination(jc: jcNoon)
             let latRad = latitude * .pi / 180
             let declRad = decl * .pi / 180
             let altNoon = asin(sin(latRad) * sin(declRad) + cos(latRad) * cos(declRad)) * 180 / .pi

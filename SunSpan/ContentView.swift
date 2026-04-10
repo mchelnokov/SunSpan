@@ -2,18 +2,37 @@
 
 import SwiftUI
 import CoreLocation
+import Combine
 
 // MARK: - App State
 
-@Observable
-class AppState {
-    var latitude: Double = 40.7128
-    var longitude: Double = -74.0060
-    var year: Int = Calendar.current.component(.year, from: Date())
-    var selectedTimeZone: TimeZone = TimeZone(identifier: "America/New_York")!
-    var locationName: String = "New York"
+class AppState: ObservableObject {
+    private static let defaults = UserDefaults.standard
+    private var cancellable: AnyCancellable?
 
-    var dayLightData: [DayLightInfo] = []
+    @Published var latitude: Double = defaults.object(forKey: "latitude") as? Double ?? 40.7128 {
+        didSet { Self.defaults.set(latitude, forKey: "latitude") }
+    }
+    @Published var longitude: Double = defaults.object(forKey: "longitude") as? Double ?? -74.0060 {
+        didSet { Self.defaults.set(longitude, forKey: "longitude") }
+    }
+    @Published var year: Int = defaults.object(forKey: "year") as? Int ?? Calendar.current.component(.year, from: Date()) {
+        didSet { Self.defaults.set(year, forKey: "year") }
+    }
+    @Published var selectedTimeZone: TimeZone = {
+        if let id = defaults.string(forKey: "timeZoneId"), let tz = TimeZone(identifier: id) { return tz }
+        return TimeZone(identifier: "America/New_York")!
+    }() {
+        didSet { Self.defaults.set(selectedTimeZone.identifier, forKey: "timeZoneId") }
+    }
+    @Published var locationName: String = defaults.string(forKey: "locationName") ?? String(localized: "New York", comment: "Default location name shown before device location resolves") {
+        didSet { Self.defaults.set(locationName, forKey: "locationName") }
+    }
+    @Published var dstEnabled: Bool = defaults.object(forKey: "dstEnabled") as? Bool ?? true {
+        didSet { Self.defaults.set(dstEnabled, forKey: "dstEnabled") }
+    }
+
+    @Published var dayLightData: [DayLightInfo] = []
     let locationManager = LocationManager()
     /// Single shared geocoder. CoreLocation rate-limits calls; we cancel any
     /// in-flight request before starting a new one.
@@ -21,8 +40,19 @@ class AppState {
     private var didInitFromDevice = false
 
     init() {
+        // Forward nested ObservableObject changes so SwiftUI sees them.
+        cancellable = locationManager.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        // If no saved location exists, resolve from device on first launch.
+        // Otherwise use persisted values and skip device location.
+        let hasSavedLocation = Self.defaults.object(forKey: "latitude") != nil
+        if hasSavedLocation {
+            didInitFromDevice = true
+        } else {
+            locationManager.requestLocation()
+        }
         recalculate()
-        locationManager.requestLocation()
     }
 
     func initFromDeviceLocationIfNeeded() {
@@ -32,17 +62,19 @@ class AppState {
         // Only update state after geocoder returns, so coordinates and timezone are always consistent
         geocoder.cancelGeocode()
         geocoder.reverseGeocodeLocation(location) { [self] placemarks, _ in
-            self.latitude = location.coordinate.latitude
-            self.longitude = location.coordinate.longitude
-            if let placemark = placemarks?.first {
-                self.selectedTimeZone = placemark.timeZone ?? TimeZone.current
-                self.locationName = AppState.formatPlacemarkName(placemark)
-                    ?? String(localized: "Current Location")
-            } else {
-                self.selectedTimeZone = TimeZone.current
-                self.locationName = String(localized: "Current Location")
+            DispatchQueue.main.async {
+                self.latitude = location.coordinate.latitude
+                self.longitude = location.coordinate.longitude
+                if let placemark = placemarks?.first {
+                    self.selectedTimeZone = placemark.timeZone ?? TimeZone.current
+                    self.locationName = AppState.formatPlacemarkName(placemark)
+                        ?? String(localized: "Current Location")
+                } else {
+                    self.selectedTimeZone = TimeZone.current
+                    self.locationName = String(localized: "Current Location")
+                }
+                self.recalculate()
             }
-            self.recalculate()
         }
     }
 
@@ -58,12 +90,26 @@ class AppState {
         return city ?? region ?? placemark.country
     }
 
+    /// The timezone used for calculation: the real timezone when DST is on,
+    /// or a fixed-offset clone (standard time) when DST is off.
+    var effectiveTimeZone: TimeZone {
+        if dstEnabled {
+            return selectedTimeZone
+        }
+        // Use Jan 1 of the selected year to get the standard (non-DST) offset.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let jan1 = cal.date(from: DateComponents(year: year, month: 1, day: 1)) ?? Date()
+        let standardOffset = selectedTimeZone.secondsFromGMT(for: jan1)
+        return TimeZone(secondsFromGMT: standardOffset) ?? selectedTimeZone
+    }
+
     func recalculate() {
         dayLightData = SolarCalculator.calculateYear(
             year: year,
             latitude: latitude,
             longitude: longitude,
-            timeZone: selectedTimeZone
+            timeZone: effectiveTimeZone
         )
     }
 }
@@ -71,8 +117,7 @@ class AppState {
 // MARK: - Content View
 
 struct ContentView: View {
-    @State private var state = AppState()
-    @State private var showSettings = false
+    @StateObject private var state = AppState()
     @State private var flipAngle: Double = 0
     @State private var settingsOpenCounter: Int = 0
 
@@ -97,7 +142,8 @@ struct ContentView: View {
                     DaylightChartView(
                         data: state.dayLightData,
                         year: state.year,
-                        timeZone: state.selectedTimeZone
+                        timeZone: state.effectiveTimeZone,
+                        dstEnabled: state.dstEnabled
                     )
                     .ignoresSafeArea()
 
@@ -109,9 +155,11 @@ struct ContentView: View {
                             }
                             .padding(.top, 8)
                             locationLabel
+                            coordinatesLabel
                         }
                         Spacer()
                         if isLandscape {
+                            coordinatesLabel
                             locationLabel
                             HStack(spacing: 10) {
                                 yearLabel
@@ -128,7 +176,7 @@ struct ContentView: View {
             }
             .rotation3DEffect(.degrees(flipAngle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
         }
-        .onChange(of: state.locationManager.didResolve) {
+        .onChange(of: state.locationManager.didResolve) { _ in
             state.initFromDeviceLocationIfNeeded()
         }
     }
@@ -151,6 +199,30 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
+    private var coordinatesLabel: some View {
+        Text(verbatim: "\(formatDMS(state.latitude, isLat: true))  \(formatDMS(state.longitude, isLat: false))")
+            .font(.subheadline)
+            .foregroundStyle(.white.opacity(0.85))
+            .shadow(color: .black, radius: 2)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func formatDMS(_ value: Double, isLat: Bool) -> String {
+        let abs = abs(value)
+        let deg = Int(abs)
+        let minFull = (abs - Double(deg)) * 60
+        let min = Int(minFull)
+        let sec = Int((minFull - Double(min)) * 60)
+        let dir: String
+        if isLat {
+            dir = value >= 0 ? String(localized: "N", comment: "Cardinal direction North") : String(localized: "S", comment: "Cardinal direction South")
+        } else {
+            dir = value >= 0 ? String(localized: "E", comment: "Cardinal direction East") : String(localized: "W", comment: "Cardinal direction West")
+        }
+        return "\(deg)\u{00B0}\(min)\u{2032}\(sec)\u{2033} \(dir)"
+    }
+
     private var gearButton: some View {
         Button {
             flipToSettings()
@@ -169,14 +241,12 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.6)) {
             flipAngle = 180
         }
-        showSettings = true
     }
 
     func flipToChartDiscardingChanges() {
         withAnimation(.easeInOut(duration: 0.6)) {
             flipAngle = 0
         }
-        showSettings = false
     }
 
     func flipToChart() {
@@ -184,6 +254,5 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.6)) {
             flipAngle = 0
         }
-        showSettings = false
     }
 }
