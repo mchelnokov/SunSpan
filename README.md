@@ -7,12 +7,13 @@ An iOS and iPadOS app that renders an entire year of sunrise, sunset, and twilig
 - Full-year daylight chart for any location, any year from 1900 to 2100
 - Eight-stop twilight gradient: night, astronomical, nautical, civil, day
 - Tap or drag any day on the chart to inspect sunrise, sunset, daylight length, and twilight phase times in a detail bubble
+- Year stats page with totals, earliest/latest sunrise and sunset, longest/shortest day, average day length, equinoxes, and polar-aware metrics for midnight-sun locations
 - Daylight Saving Time transitions marked on the chart, with a toggle to view in standard time
 - Coordinates displayed on the chart
-- Yellow highlight on the selected day
+- Yellow highlight on the selected day, preserved as you pan and step through years
 - Location picker via hybrid map with place names, or automatic from device GPS on first launch
 - "My Location" button to jump to the device location
-- Year picker (1900–2100)
+- Inline year stepper (1900–2100) that keeps your selected day across year changes
 - Time zone resolved automatically from the selected coordinates
 - All settings persist between launches
 - Page-flip transition between the chart and settings
