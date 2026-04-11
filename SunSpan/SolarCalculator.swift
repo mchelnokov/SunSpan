@@ -64,17 +64,21 @@ enum SolarCalculator {
         if let sr = sunrise, let ss = sunset {
             dayLength = (ss - sr) / 60.0
         } else {
-            // Polar day or polar night — check noon altitude using the
-            // declination at actual solar noon, not at the start of the
-            // Julian day, so the result is consistent with the two-pass
-            // sunrise/sunset refinement on boundary days.
+            // Polar day or polar night — use the same cosHA formulation as
+            // hourAngle() so this decision agrees with the sunrise/sunset
+            // pass. cosHA < −1 means the sun never descends to −0.833°
+            // (true polar day); anything else, including boundary days
+            // where the sun grazes the horizon at noon, is treated as
+            // night so we don't paint a full daylight stripe on a day
+            // with no event times.
             let noonUTC = noon - tzOffset * 60
             let jcNoon = julianCentury(jd: jd + noonUTC / 1440.0)
             let decl = sunDeclination(jc: jcNoon)
             let latRad = latitude * .pi / 180
             let declRad = decl * .pi / 180
-            let altNoon = asin(sin(latRad) * sin(declRad) + cos(latRad) * cos(declRad)) * 180 / .pi
-            dayLength = altNoon > -0.833 ? 24.0 : 0.0
+            let zenRad = 90.833 * .pi / 180
+            let cosHA = (cos(zenRad) / (cos(latRad) * cos(declRad))) - tan(latRad) * tan(declRad)
+            dayLength = cosHA < -1 ? 24.0 : 0.0
         }
 
         return DayLightInfo(

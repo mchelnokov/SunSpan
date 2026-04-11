@@ -16,9 +16,7 @@ class AppState: ObservableObject {
     @Published var longitude: Double = defaults.object(forKey: "longitude") as? Double ?? -74.0060 {
         didSet { Self.defaults.set(longitude, forKey: "longitude") }
     }
-    @Published var year: Int = defaults.object(forKey: "year") as? Int ?? Calendar.current.component(.year, from: Date()) {
-        didSet { Self.defaults.set(year, forKey: "year") }
-    }
+    @Published var year: Int = Calendar.current.component(.year, from: Date())
     @Published var selectedTimeZone: TimeZone = {
         if let id = defaults.string(forKey: "timeZoneId"), let tz = TimeZone(identifier: id) { return tz }
         return TimeZone(identifier: "America/New_York")!
@@ -116,26 +114,54 @@ class AppState: ObservableObject {
 
 // MARK: - Content View
 
+enum BackFace {
+    case settings
+    case stats
+}
+
+func formatDMS(_ value: Double, isLat: Bool) -> String {
+    let abs = abs(value)
+    let deg = Int(abs)
+    let minFull = (abs - Double(deg)) * 60
+    let min = Int(minFull)
+    let sec = Int((minFull - Double(min)) * 60)
+    let dir: String
+    if isLat {
+        dir = value >= 0 ? String(localized: "N", comment: "Cardinal direction North") : String(localized: "S", comment: "Cardinal direction South")
+    } else {
+        dir = value >= 0 ? String(localized: "E", comment: "Cardinal direction East") : String(localized: "W", comment: "Cardinal direction West")
+    }
+    return "\(deg)\u{00B0}\(min)\u{2032}\(sec)\u{2033} \(dir)"
+}
+
 struct ContentView: View {
     @StateObject private var state = AppState()
     @State private var flipAngle: Double = 0
     @State private var settingsOpenCounter: Int = 0
+    @State private var backFace: BackFace = .settings
 
     var body: some View {
         GeometryReader { geo in
             let isLandscape = geo.size.width > geo.size.height
 
             ZStack {
-                // Back face: Settings
-                SettingsView(
-                    state: state,
-                    openCounter: settingsOpenCounter,
-                    onDone: flipToChart,
-                    onCancel: flipToChartDiscardingChanges
-                )
+                // Back face: Settings or Year Stats
+                Group {
+                    if backFace == .stats {
+                        YearStatsView(state: state, onBack: flipToChartDiscardingChanges)
+                    } else {
+                        SettingsView(
+                            state: state,
+                            openCounter: settingsOpenCounter,
+                            onDone: flipToChart,
+                            onCancel: flipToChartDiscardingChanges
+                        )
+                    }
+                }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
                 .opacity(flipAngle > 90 ? 1 : 0)
+                .allowsHitTesting(flipAngle > 90)
 
                 // Front face: Chart
                 ZStack {
@@ -145,15 +171,12 @@ struct ContentView: View {
                         timeZone: state.effectiveTimeZone,
                         dstEnabled: state.dstEnabled
                     )
-                    .ignoresSafeArea()
 
                     VStack(alignment: .trailing, spacing: 6) {
                         if !isLandscape {
-                            HStack(spacing: 10) {
-                                yearLabel
-                                gearButton
-                            }
-                            .padding(.top, 8)
+                            gearButton
+                                .padding(.top, 8)
+                            yearControl
                             locationLabel
                             coordinatesLabel
                         }
@@ -161,18 +184,23 @@ struct ContentView: View {
                         if isLandscape {
                             coordinatesLabel
                             locationLabel
-                            HStack(spacing: 10) {
-                                yearLabel
-                                gearButton
-                            }
-                            .padding(.bottom, 8)
+                            yearControl
+                            gearButton
+                                .padding(.bottom, 8)
                         }
                     }
                     .padding(.trailing, 14)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    statsButton
+                        .padding(isLandscape ? .leading : .trailing, 14)
+                        .padding(.bottom, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: isLandscape ? .bottomLeading : .bottomTrailing)
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .opacity(flipAngle < 90 ? 1 : 0)
+                .allowsHitTesting(flipAngle < 90)
             }
             .rotation3DEffect(.degrees(flipAngle), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
         }
@@ -181,12 +209,34 @@ struct ContentView: View {
         }
     }
 
-    private var yearLabel: some View {
-        Text(verbatim: "\(state.year)")
-            .font(.title)
-            .fontWeight(.medium)
-            .foregroundStyle(.white)
-            .shadow(color: .black, radius: 3)
+    private var yearControl: some View {
+        HStack(spacing: 2) {
+            yearStepButton(systemName: "chevron.left") { state.year -= 1; state.recalculate() }
+            Text(verbatim: "\(state.year)")
+                .font(.system(size: 34, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+            yearStepButton(systemName: "chevron.right") { state.year += 1; state.recalculate() }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(.white.opacity(0.5), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.6), radius: 3)
+    }
+
+    private func yearStepButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(.yellow)
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
     }
 
     private var locationLabel: some View {
@@ -208,20 +258,6 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func formatDMS(_ value: Double, isLat: Bool) -> String {
-        let abs = abs(value)
-        let deg = Int(abs)
-        let minFull = (abs - Double(deg)) * 60
-        let min = Int(minFull)
-        let sec = Int((minFull - Double(min)) * 60)
-        let dir: String
-        if isLat {
-            dir = value >= 0 ? String(localized: "N", comment: "Cardinal direction North") : String(localized: "S", comment: "Cardinal direction South")
-        } else {
-            dir = value >= 0 ? String(localized: "E", comment: "Cardinal direction East") : String(localized: "W", comment: "Cardinal direction West")
-        }
-        return "\(deg)\u{00B0}\(min)\u{2032}\(sec)\u{2033} \(dir)"
-    }
 
     private var gearButton: some View {
         Button {
@@ -234,10 +270,29 @@ struct ContentView: View {
         }
     }
 
+    private var statsButton: some View {
+        Button {
+            flipToStats()
+        } label: {
+            Image(systemName: "info.circle.fill")
+                .font(.title)
+                .foregroundStyle(.yellow)
+                .shadow(color: .black, radius: 3)
+        }
+    }
+
     private func flipToSettings() {
         // Bump the counter so SettingsView re-syncs its drafts from the
         // latest AppState before becoming visible.
         settingsOpenCounter += 1
+        backFace = .settings
+        withAnimation(.easeInOut(duration: 0.6)) {
+            flipAngle = 180
+        }
+    }
+
+    private func flipToStats() {
+        backFace = .stats
         withAnimation(.easeInOut(duration: 0.6)) {
             flipAngle = 180
         }

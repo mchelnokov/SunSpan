@@ -89,7 +89,33 @@ struct DaylightChartView: View {
     let timeZone: TimeZone
     var dstEnabled: Bool = true
 
-    @State private var selectedIndex: Int?
+    // Selection is tracked as month+day so it survives year changes.
+    // Feb 29 in a leap year renders as Mar 1 in non-leap via Calendar normalization.
+    @State private var selectedMonth: Int = 1
+    @State private var selectedDay: Int = 1
+    @State private var didInitSelection = false
+    @State private var bubbleSize: CGSize = CGSize(width: 180, height: 120)
+
+    private var selectedIndex: Int {
+        let cal = Calendar(identifier: .gregorian)
+        let comps = DateComponents(year: year, month: selectedMonth, day: selectedDay)
+        guard let date = cal.date(from: comps),
+              let doy = cal.ordinality(of: .day, in: .year, for: date) else {
+            return 0
+        }
+        return doy - 1
+    }
+
+    private func setSelection(toDayIndex index: Int) {
+        let cal = Calendar(identifier: .gregorian)
+        guard let jan1 = cal.date(from: DateComponents(year: year, month: 1, day: 1)),
+              let target = cal.date(byAdding: .day, value: index, to: jan1) else {
+            return
+        }
+        let md = cal.dateComponents([.month, .day], from: target)
+        selectedMonth = md.month ?? 1
+        selectedDay = md.day ?? 1
+    }
 
     static let nightColor = Color(red: 0.02, green: 0.02, blue: 0.04)
     static let nauticalColor = Color(red: 0.15, green: 0.25, blue: 0.42)
@@ -101,6 +127,9 @@ struct DaylightChartView: View {
     var body: some View {
         GeometryReader { geo in
             let layout = ChartLayout(size: geo.size, dayCount: data.count)
+            let shortEdge = min(geo.size.width, geo.size.height)
+            let fontSize = max(13, min(shortEdge * 0.028, 26))
+            let sizeKey = "\(year)|\(data.count)|\(Int(fontSize.rounded()))|\(Locale.current.identifier)|\(timeZone.identifier)|\(dstEnabled)"
 
             Canvas { context, size in
                 guard !data.isEmpty else { return }
@@ -225,41 +254,46 @@ struct DaylightChartView: View {
                     context.draw(resolved, at: point, anchor: .topLeading)
                 }
 
-                // Selection highlight
-                if let idx = selectedIndex, idx >= 0, idx < data.count {
-                    let (p1, p2) = layout.dayLine(at: idx)
+                // Selection highlight — thick anti-aliased bar, always visible.
+                if selectedIndex >= 0, selectedIndex < data.count {
+                    let (p1, p2) = layout.dayLine(at: selectedIndex)
                     var path = Path()
                     path.move(to: p1)
                     path.addLine(to: p2)
-                    context.stroke(path, with: .color(.yellow), lineWidth: 3)
+                    let barWidth = max(5, min(fontSize * 0.4, 9))
+                    context.stroke(path, with: .color(.yellow), lineWidth: barWidth)
                 }
             }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let idx = layout.dayIndex(at: value.location)
-                        if idx >= 0 && idx < data.count {
-                            selectedIndex = idx
-                        }
-                    }
-                    .onEnded { _ in
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            selectedIndex = nil
-                        }
+                        let raw = layout.dayIndex(at: value.location)
+                        setSelection(toDayIndex: min(max(raw, 0), data.count - 1))
                     }
             )
             .overlay {
-                if let idx = selectedIndex, idx >= 0, idx < data.count {
-                    dayInfoBubble(day: data[idx], layout: layout, in: geo.size)
+                if selectedIndex >= 0, selectedIndex < data.count {
+                    dayInfoBubble(day: data[selectedIndex], layout: layout, in: geo.size, safeAreaInsets: geo.safeAreaInsets, fontSize: fontSize)
                 }
             }
+            .task(id: sizeKey) {
+                bubbleSize = computeBubbleSize(fontSize: fontSize)
+            }
+            .onAppear {
+                guard !didInitSelection else { return }
+                let today = Calendar(identifier: .gregorian).dateComponents([.month, .day], from: Date())
+                selectedMonth = today.month ?? 1
+                selectedDay = today.day ?? 1
+                didInitSelection = true
+            }
         }
+        .ignoresSafeArea()
     }
 
     // MARK: - Info Bubble
 
-    private func dayInfoBubble(day: DayLightInfo, layout: ChartLayout, in size: CGSize) -> some View {
+    private func dayInfoBubble(day: DayLightInfo, layout: ChartLayout, in size: CGSize, safeAreaInsets: EdgeInsets, fontSize: CGFloat) -> some View {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
         formatter.dateStyle = .medium
@@ -288,56 +322,168 @@ struct DaylightChartView: View {
         let sunsetStr = timeString(day.sunset)
         let dayLength = String(format: String(localized: "dayLength.format"), Int(day.dayLengthHours), Int(day.dayLengthHours.truncatingRemainder(dividingBy: 1) * 60))
 
-        // Position the bubble near the selected day, offset above the finger
-        let dayMid = layout.dayPos(day.id - 1) + layout.dayStride / 2
-        let bubbleWidth: CGFloat = 160
-        let bubbleHeight: CGFloat = 80
-        let fingerOffset: CGFloat = 60
-        let margin: CGFloat = 4
+        // Bubble dimensions are precomputed once from the widest possible content for this year
+        // (see computeBubbleSize). Stable across days, balanced padding left and right.
+        var bubbleWidth = bubbleSize.width
+        var bubbleHeight = bubbleSize.height
 
-        let x: CGFloat
-        let y: CGFloat
+        // Mirror the chart's label sizing so we can reserve space for the month/hour strips.
+        let avgMonthSpan = layout.dayAxisLength / 12
+        let labelFontSize = max(9, min(avgMonthSpan * 0.4, 20))
+        let labelStrip = labelFontSize + 8
+
+        // Usable region: inside safe area, and off the label strips so the bubble never
+        // hides under the camera/notch or overlaps month/hour labels.
+        var minX = safeAreaInsets.leading + 4
+        var maxX = size.width - safeAreaInsets.trailing - 4
+        var minY = safeAreaInsets.top + 4
+        var maxY = size.height - safeAreaInsets.bottom - 4
         if layout.isLandscape {
-            // Finger is along X axis; offset bubble to the left of finger, flip to right if near leading edge
-            if dayMid - bubbleWidth - fingerOffset > margin {
+            minY += labelStrip  // month labels along the top
+            minX += labelStrip  // hour labels along the left
+        } else {
+            minX += labelStrip  // month labels along the left
+            maxY -= labelStrip  // hour labels along the bottom
+        }
+
+        bubbleWidth = min(bubbleWidth, max(0, maxX - minX))
+        bubbleHeight = min(bubbleHeight, max(0, maxY - minY))
+
+        let dayMid = layout.dayPos(day.id - 1) + layout.dayStride / 2
+        let fingerOffset: CGFloat = 30
+
+        var x: CGFloat
+        var y: CGFloat
+        if layout.isLandscape {
+            // Finger is along X axis. Put the bubble to the left of the finger only when the
+            // selected day is past the horizontal midpoint; otherwise put it to the right.
+            // Keeps the bubble well clear of whichever short edge holds the camera.
+            if dayMid >= size.width / 2 {
                 x = dayMid - bubbleWidth - fingerOffset
             } else {
                 x = dayMid + fingerOffset
             }
-            y = min(max(size.height / 2 - bubbleHeight / 2, margin), size.height - bubbleHeight - margin)
+            // Horizontal center axis at the center of the top half of the screen.
+            y = size.height / 4 - bubbleHeight / 2
         } else {
-            // Finger is along Y axis; offset bubble above finger, flip below if near top edge
-            x = size.width / 2 - bubbleWidth / 2
-            if dayMid - bubbleHeight - fingerOffset > margin {
+            // Finger is along Y axis. Put the bubble above the finger only when the selected
+            // day is past the vertical midpoint; otherwise put it below. This keeps the
+            // bubble well clear of the top edge / camera even if clamping would technically
+            // allow the "above" placement.
+            // Vertical center axis at the center of the left half of the screen.
+            x = size.width / 4 - bubbleWidth / 2
+            if dayMid >= size.height / 2 {
                 y = dayMid - bubbleHeight - fingerOffset
             } else {
                 y = dayMid + fingerOffset
             }
         }
 
-        return VStack(alignment: .leading, spacing: 4) {
+        x = min(max(x, minX), maxX - bubbleWidth)
+        y = min(max(y, minY), maxY - bubbleHeight)
+
+        return VStack(alignment: .leading, spacing: 6) {
             Text(dateStr)
                 .fontWeight(.semibold)
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: "sunrise")
                 Text(sunriseStr)
-                Spacer()
+            }
+            HStack(spacing: 6) {
                 Image(systemName: "sunset")
                 Text(sunsetStr)
             }
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: "sun.max")
                 Text(dayLength)
             }
         }
-        .font(.caption)
+        .font(.system(size: fontSize))
         .foregroundStyle(.white)
         .padding(10)
-        .frame(width: bubbleWidth)
+        .frame(width: bubbleWidth, height: bubbleHeight, alignment: .topLeading)
         .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
         .position(x: x + bubbleWidth / 2, y: y + bubbleHeight / 2)
         .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.15), value: selectedIndex)
+    }
+
+    // MARK: - Bubble Size Precomputation
+
+    /// Measures the widest possible bubble content for the current data set at the given font size.
+    /// Called from `.task(id:)` whenever year/data/font/locale/timezone changes — not per frame.
+    private func computeBubbleSize(fontSize: CGFloat) -> CGSize {
+        let regular = UIFont.systemFont(ofSize: fontSize)
+        let semibold = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = Locale.current
+        timeFormatter.dateFormat = DateFormatter.dateFormat(fromTemplate: "j:mm", options: 0, locale: Locale.current)
+
+        func width(_ s: String, font: UIFont) -> CGFloat {
+            (s as NSString).size(withAttributes: [.font: font]).width
+        }
+
+        func timeString(_ minutes: Double?) -> String {
+            guard let m = minutes else { return "—" }
+            var wrapped = Int(m) % 1440
+            if wrapped < 0 { wrapped += 1440 }
+            let h = wrapped / 60
+            let mn = wrapped % 60
+            var comps = DateComponents()
+            comps.hour = h
+            comps.minute = mn
+            guard let date = Calendar.current.date(from: comps) else { return "—" }
+            return timeFormatter.string(from: date)
+        }
+
+        var maxDate: CGFloat = 0
+        var maxSunrise: CGFloat = 0
+        var maxSunset: CGFloat = 0
+        var maxDayLen: CGFloat = 0
+
+        for day in data {
+            maxDate = max(maxDate, width(formatter.string(from: day.date), font: semibold))
+            maxSunrise = max(maxSunrise, width(timeString(day.sunrise), font: regular))
+            maxSunset = max(maxSunset, width(timeString(day.sunset), font: regular))
+            let dayLen = String(
+                format: String(localized: "dayLength.format"),
+                Int(day.dayLengthHours),
+                Int(day.dayLengthHours.truncatingRemainder(dividingBy: 1) * 60)
+            )
+            maxDayLen = max(maxDayLen, width(dayLen, font: regular))
+        }
+
+        func iconWidth(_ name: String) -> CGFloat {
+            let cfg = UIImage.SymbolConfiguration(pointSize: fontSize)
+            return UIImage(systemName: name, withConfiguration: cfg)?.size.width ?? fontSize * 1.2
+        }
+
+        let sunriseIcon = iconWidth("sunrise")
+        let sunsetIcon = iconWidth("sunset")
+        let sunIcon = iconWidth("sun.max")
+
+        let hSpacing: CGFloat = 6
+        let row1 = maxDate
+        let row2 = sunriseIcon + hSpacing + maxSunrise
+        let row3 = sunsetIcon + hSpacing + maxSunset
+        let row4 = sunIcon + hSpacing + maxDayLen
+
+        let contentWidth = max(row1, row2, row3, row4)
+        let lineHeight = regular.lineHeight
+        let vSpacing: CGFloat = 6
+        let contentHeight = lineHeight * 4 + vSpacing * 3
+
+        let padding: CGFloat = 10
+        return CGSize(
+            width: ceil(contentWidth + padding * 2 + 2),
+            height: ceil(contentHeight + padding * 2)
+        )
     }
 
     // MARK: - Day Stripe Rendering
