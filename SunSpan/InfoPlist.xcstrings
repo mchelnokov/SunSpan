@@ -1,160 +1,196 @@
 {
-  "sourceLanguage" : "en",
-  "strings" : {
-    "CFBundleDisplayName" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan"
+  "sourceLanguage": "en",
+  "strings": {
+    "CFBundleDisplayName": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
           }
         },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan"
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan"
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan"
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
           }
         }
       }
     },
-    "CFBundleName" : {
-      "comment" : "Bundle name",
-      "extractionState" : "extracted_with_value",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "SunSpan"
+    "CFBundleName": {
+      "comment": "Bundle name",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "SunSpan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan"
           }
         }
       }
     },
-    "NSLocationWhenInUseUsageDescription" : {
-      "comment" : "Privacy - Location When In Use Usage Description",
-      "localizations" : {
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan používá vaši polohu k zobrazení údajů o denním světle pro místo, kde se nacházíte."
+    "NSLocationWhenInUseUsageDescription": {
+      "comment": "Privacy - Location When In Use Usage Description",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan používá vaši polohu k zobrazení údajů o denním světle pro místo, kde se nacházíte."
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan bruger din placering til at vise dagslysdata for, hvor du befinder dig."
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan bruger din placering til at vise dagslysdata for, hvor du befinder dig."
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan verwendet deinen Standort, um Tageslichtdaten für deinen Aufenthaltsort anzuzeigen."
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan verwendet deinen Standort, um Tageslichtdaten für deinen Aufenthaltsort anzuzeigen."
           }
         },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan uses your location to show daylight data for where you are."
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan uses your location to show daylight data for where you are."
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan usa tu ubicación para mostrar datos de luz solar de donde estás."
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan usa tu ubicación para mostrar datos de luz solar de donde estás."
           }
         },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan käyttää sijaintiasi näyttääkseen päivänvalotiedot olinpaikastasi."
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan käyttää sijaintiasi näyttääkseen päivänvalotiedot olinpaikastasi."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan utilise votre position pour afficher les données d’ensoleillement de l’endroit où vous vous trouvez."
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan utilise votre position pour afficher les données d’ensoleillement de l’endroit où vous vous trouvez."
           }
         },
-        "is" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan notar staðsetningu þína til að sýna dagsbirtugögn fyrir staðinn þar sem þú ert."
+        "is": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan notar staðsetningu þína til að sýna dagsbirtugögn fyrir staðinn þar sem þú ert."
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan usa la tua posizione per mostrare i dati sulla luce diurna del luogo in cui ti trovi."
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan usa la tua posizione per mostrare i dati sulla luce diurna del luogo in cui ti trovi."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpanは現在地の日照データを表示するために位置情報を使用します。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpanは現在地の日照データを表示するために位置情報を使用します。"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan은 현재 위치의 일조 데이터를 표시하기 위해 위치 정보를 사용합니다."
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan은 현재 위치의 일조 데이터를 표시하기 위해 위치 정보를 사용합니다."
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan bruker posisjonen din til å vise dagslysdata for stedet du befinner deg."
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan bruker posisjonen din til å vise dagslysdata for stedet du befinner deg."
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan używa Twojej lokalizacji, aby pokazać dane o świetle dziennym dla miejsca, w którym się znajdujesz."
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan używa Twojej lokalizacji, aby pokazać dane o świetle dziennym dla miejsca, w którym się znajdujesz."
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O SunSpan usa sua localização para mostrar dados de luz do dia para onde você está."
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O SunSpan usa sua localização para mostrar dados de luz do dia para onde você está."
           }
         },
-        "sk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan používa vašu polohu na zobrazenie údajov o dennom svetle pre miesto, kde sa nachádzate."
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan používa vašu polohu na zobrazenie údajov o dennom svetle pre miesto, kde sa nachádzate."
           }
         },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan använder din plats för att visa dagsljusdata för där du befinner dig."
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan använder din plats för att visa dagsljusdata för där du befinner dig."
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan використовує ваше місцезнаходження, щоб показати дані про сонячне світло для вашого місця."
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan використовує ваше місцезнаходження, щоб показати дані про сонячне світло для вашого місця."
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SunSpan 使用您的位置来显示您所在地的日照数据。"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan 使用您的位置来显示您所在地的日照数据。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم SunSpan موقعك لعرض بيانات ضوء النهار لمنطقتك."
+          }
+        },
+        "he": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SunSpan משתמש במיקום שלך כדי להציג נתוני אור יום עבור המיקום שלך."
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

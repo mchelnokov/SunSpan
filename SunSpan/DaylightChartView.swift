@@ -1,6 +1,7 @@
 // Copyright (c) 2026 SunSpan Contributors. MIT License — see LICENSE file.
 
 import SwiftUI
+import Combine
 
 // MARK: - Chart Layout (orientation-aware coordinate mapping)
 
@@ -88,6 +89,10 @@ struct DaylightChartView: View {
     let year: Int
     let timeZone: TimeZone
     var dstEnabled: Bool = true
+    var showCurrentMoment: Bool = false
+    var youAreHereTopLimit: CGFloat = 0
+    var youAreHereBottomLimit: CGFloat = .infinity
+    var parentSafeAreaInsets: EdgeInsets = EdgeInsets()
 
     // Selection is tracked as month+day so it survives year changes.
     // Feb 29 in a leap year renders as Mar 1 in non-leap via Calendar normalization.
@@ -95,6 +100,8 @@ struct DaylightChartView: View {
     @State private var selectedDay: Int = 1
     @State private var didInitSelection = false
     @State private var bubbleSize: CGSize = CGSize(width: 180, height: 120)
+    @State private var youAreHereBubbleWidth: CGFloat = 120
+    @State private var now: Date = Date()
 
     private var selectedIndex: Int {
         let cal = Calendar(identifier: .gregorian)
@@ -182,31 +189,6 @@ struct DaylightChartView: View {
                     context.draw(resolved, at: point, anchor: .topLeading)
                 }
 
-                // DST-offset dashed hour lines
-                // Shows where 6/12/18 standard time falls during DST periods
-                if dstEnabled, !data.isEmpty {
-                    let standardOffset = timeZone.secondsFromGMT(for: data[0].date)
-                    var dstRangeStart: Int?
-                    var dstOffsetSeconds: Int = 0
-
-                    for (i, day) in data.enumerated() {
-                        let currentOffset = timeZone.secondsFromGMT(for: day.date)
-                        let dstDelta = currentOffset - standardOffset
-                        let isDST = dstDelta != 0
-
-                        if isDST && dstRangeStart == nil {
-                            dstRangeStart = i
-                            dstOffsetSeconds = dstDelta
-                        } else if !isDST && dstRangeStart != nil {
-                            drawDSTLines(context: &context, layout: layout, from: dstRangeStart!, to: i - 1, dstOffsetSeconds: dstOffsetSeconds, hourColor: hourColor)
-                            dstRangeStart = nil
-                        }
-                    }
-                    if let start = dstRangeStart {
-                        drawDSTLines(context: &context, layout: layout, from: start, to: data.count - 1, dstOffsetSeconds: dstOffsetSeconds, hourColor: hourColor)
-                    }
-                }
-
                 // Month grid lines and labels
                 let calendar = Calendar(identifier: .gregorian)
                 let formatter = DateFormatter()
@@ -263,6 +245,32 @@ struct DaylightChartView: View {
                     let barWidth = max(5, min(fontSize * 0.4, 9))
                     context.stroke(path, with: .color(.yellow), lineWidth: barWidth)
                 }
+
+                // "You are here" dot — current moment on the chart.
+                if showCurrentMoment {
+                    var cal = Calendar(identifier: .gregorian)
+                    cal.timeZone = timeZone
+                    let comps = cal.dateComponents([.hour, .minute], from: now)
+                    let dayIndex = (cal.ordinality(of: .day, in: .year, for: now) ?? 1) - 1
+                    let minuteOfDay = Double(comps.hour ?? 0) * 60 + Double(comps.minute ?? 0)
+
+                    if dayIndex >= 0, dayIndex < data.count {
+                        let dayCenter = layout.dayPos(dayIndex) + layout.dayStride / 2
+                        let timeCenter = layout.timePos(minuteOfDay)
+                        let center = layout.isLandscape
+                            ? CGPoint(x: dayCenter, y: timeCenter)
+                            : CGPoint(x: timeCenter, y: dayCenter)
+
+                        let dotRadius: CGFloat = max(4.5, min(layout.dayStride * 2.25, 9))
+                        let shadowRadius = dotRadius + 1.5
+                        let shadowRect = CGRect(x: center.x - shadowRadius, y: center.y - shadowRadius,
+                                                width: shadowRadius * 2, height: shadowRadius * 2)
+                        context.fill(Path(ellipseIn: shadowRect), with: .color(.black.opacity(0.5)))
+                        let dotRect = CGRect(x: center.x - dotRadius, y: center.y - dotRadius,
+                                             width: dotRadius * 2, height: dotRadius * 2)
+                        context.fill(Path(ellipseIn: dotRect), with: .color(.white))
+                    }
+                }
             }
             .contentShape(Rectangle())
             .gesture(
@@ -274,7 +282,12 @@ struct DaylightChartView: View {
             )
             .overlay {
                 if selectedIndex >= 0, selectedIndex < data.count {
-                    dayInfoBubble(day: data[selectedIndex], layout: layout, in: geo.size, safeAreaInsets: geo.safeAreaInsets, fontSize: fontSize)
+                    dayInfoBubble(day: data[selectedIndex], layout: layout, in: geo.size, safeAreaInsets: parentSafeAreaInsets, fontSize: fontSize)
+                }
+            }
+            .overlay {
+                if showCurrentMoment {
+                    youAreHereBubble(layout: layout, in: geo.size, safeAreaInsets: parentSafeAreaInsets, fontSize: fontSize)
                 }
             }
             .task(id: sizeKey) {
@@ -286,6 +299,9 @@ struct DaylightChartView: View {
                 selectedMonth = today.month ?? 1
                 selectedDay = today.day ?? 1
                 didInitSelection = true
+            }
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
+                if showCurrentMoment { now = date }
             }
         }
         .ignoresSafeArea()
@@ -406,6 +422,194 @@ struct DaylightChartView: View {
         .position(x: x + bubbleWidth / 2, y: y + bubbleHeight / 2)
         .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.15), value: selectedIndex)
+    }
+
+    // MARK: - "You Are Here" Bubble
+
+    private func youAreHereBubble(layout: ChartLayout, in size: CGSize, safeAreaInsets: EdgeInsets, fontSize: CGFloat) -> some View {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        let dayIndex = (cal.ordinality(of: .day, in: .year, for: now) ?? 1) - 1
+        let comps = cal.dateComponents([.hour, .minute], from: now)
+        let minuteOfDay = Double(comps.hour ?? 0) * 60 + Double(comps.minute ?? 0)
+
+        let sr = dayIndex >= 0 && dayIndex < data.count ? data[dayIndex].sunrise : nil
+        let ss = dayIndex >= 0 && dayIndex < data.count ? data[dayIndex].sunset : nil
+        let validSR = sr != nil && sr! >= 0 && sr! <= 1440
+        let validSS = ss != nil && ss! >= 0 && ss! <= 1440
+
+        let dcf = DateComponentsFormatter()
+        dcf.allowedUnits = [.hour, .minute]
+        dcf.unitsStyle = .abbreviated
+        dcf.zeroFormattingBehavior = .dropLeading
+
+        func durStr(_ mins: Double) -> String {
+            dcf.string(from: abs(mins) * 60) ?? "0m"
+        }
+
+        var line1 = ""
+        var line2 = ""
+
+        let longDcf = DateComponentsFormatter()
+        longDcf.allowedUnits = [.day, .hour, .minute]
+        longDcf.unitsStyle = .abbreviated
+        longDcf.zeroFormattingBehavior = .dropLeading
+
+        func longDurStr(_ mins: Double) -> String {
+            longDcf.string(from: abs(mins) * 60) ?? "0m"
+        }
+
+        if validSR && validSS, let sr, let ss, ss > sr {
+            let nearSunrise = abs(minuteOfDay - sr) < 1
+            let nearSunset = abs(minuteOfDay - ss) < 1
+            let isDaytime = minuteOfDay >= sr && minuteOfDay <= ss
+
+            if nearSunrise {
+                line1 = String(localized: "sunrise")
+                line2 = String(localized: "\(durStr(ss - minuteOfDay)) until sunset", comment: "Duration until sunset")
+            } else if nearSunset {
+                line1 = String(localized: "sunset")
+                let nextSR = dayIndex + 1 < data.count ? data[dayIndex + 1].sunrise : nil
+                if let nsr = nextSR, nsr >= 0, nsr <= 1440 {
+                    line2 = String(localized: "\(durStr((1440 - minuteOfDay) + nsr)) until sunrise", comment: "Duration until sunrise")
+                }
+            } else if isDaytime {
+                line1 = String(localized: "\(durStr(ss - minuteOfDay)) until sunset", comment: "Duration until sunset")
+                line2 = String(localized: "\(durStr(minuteOfDay - sr)) since sunrise", comment: "Duration since sunrise")
+            } else if minuteOfDay > ss {
+                let nextSR = dayIndex + 1 < data.count ? data[dayIndex + 1].sunrise : nil
+                if let nsr = nextSR, nsr >= 0, nsr <= 1440 {
+                    line1 = String(localized: "\(durStr((1440 - minuteOfDay) + nsr)) until sunrise", comment: "Duration until sunrise")
+                }
+                line2 = String(localized: "\(durStr(minuteOfDay - ss)) since sunset", comment: "Duration since sunset")
+            } else {
+                line1 = String(localized: "\(durStr(sr - minuteOfDay)) until sunrise", comment: "Duration until sunrise")
+                let prevSS = dayIndex > 0 ? data[dayIndex - 1].sunset : nil
+                if let pss = prevSS, pss >= 0, pss <= 1440 {
+                    line2 = String(localized: "\(durStr(minuteOfDay + (1440 - pss))) since sunset", comment: "Duration since sunset")
+                }
+            }
+        } else if dayIndex >= 0 && dayIndex < data.count {
+            let isPolarDay = data[dayIndex].dayLengthHours >= 24
+            if isPolarDay {
+                line1 = String(localized: "polar day", comment: "Label shown during midnight sun")
+                for i in (dayIndex + 1)..<data.count {
+                    if let ss = data[i].sunset, ss >= 0, ss <= 1440 {
+                        let daysAway = Double(i - dayIndex)
+                        let minsUntil = (daysAway - 1) * 1440 + (1440 - minuteOfDay) + ss
+                        line2 = String(localized: "\(longDurStr(minsUntil)) until sunset", comment: "Duration until sunset")
+                        break
+                    }
+                }
+            } else {
+                line1 = String(localized: "polar night", comment: "Label shown during polar night")
+                for i in (dayIndex + 1)..<data.count {
+                    if let sr = data[i].sunrise, sr >= 0, sr <= 1440 {
+                        let daysAway = Double(i - dayIndex)
+                        let minsUntil = (daysAway - 1) * 1440 + (1440 - minuteOfDay) + sr
+                        line2 = String(localized: "\(longDurStr(minsUntil)) until sunrise", comment: "Duration until sunrise")
+                        break
+                    }
+                }
+            }
+        }
+
+        // Replicate the info bubble's position to anchor next to it.
+        let avgMonthSpan = layout.dayAxisLength / 12
+        let labelFontSize = max(9, min(avgMonthSpan * 0.4, 20))
+        let labelStrip = labelFontSize + 8
+
+        var minX = safeAreaInsets.leading + 4
+        var maxX = size.width - safeAreaInsets.trailing - 4
+        var minY = safeAreaInsets.top + 4
+        var maxY = size.height - safeAreaInsets.bottom - 4
+        if layout.isLandscape {
+            minY += labelStrip; minX += labelStrip
+        } else {
+            minX += labelStrip; maxY -= labelStrip
+        }
+
+        let infoBW = min(bubbleSize.width, max(0, maxX - minX))
+        let infoBH = min(bubbleSize.height, max(0, maxY - minY))
+        // Use the current day (dot position), not the selected day, so the
+        // bubble aligns with where the info bubble would be for the dot's day.
+        let currentDayMid = dayIndex >= 0 && dayIndex < data.count
+            ? layout.dayPos(dayIndex) + layout.dayStride / 2
+            : layout.dayPos(0)
+        let fingerOffset: CGFloat = 30
+
+        var infoX: CGFloat
+        var infoY: CGFloat
+        if layout.isLandscape {
+            infoX = currentDayMid >= size.width / 2
+                ? currentDayMid - infoBW - fingerOffset
+                : currentDayMid + fingerOffset
+            infoY = size.height / 4 - infoBH / 2
+        } else {
+            infoX = size.width / 4 - infoBW / 2
+            infoY = currentDayMid >= size.height / 2
+                ? currentDayMid - infoBH - fingerOffset
+                : currentDayMid + fingerOffset
+        }
+        infoX = min(max(infoX, minX), maxX - infoBW)
+        infoY = min(max(infoY, minY), maxY - infoBH)
+
+        let gap: CGFloat = 6
+
+        // Estimate "you are here" bubble height so we can bottom-align
+        // when the info bubble sits above the selected day line.
+        let lineHeight = UIFont.systemFont(ofSize: fontSize).lineHeight
+        let lineCount: CGFloat = (!line1.isEmpty && !line2.isEmpty) ? 2 : 1
+        let myHeight = lineHeight * lineCount + 2 * (lineCount - 1) + 5 * 2
+
+        let posX: CGFloat
+        let posY: CGFloat
+
+        if layout.isLandscape {
+            let onLeftHalf = currentDayMid < size.width / 2
+            let rawPosX: CGFloat
+            if onLeftHalf {
+                rawPosX = infoX
+            } else {
+                rawPosX = infoX + infoBW - youAreHereBubbleWidth
+            }
+            posX = max(min(rawPosX, maxX - youAreHereBubbleWidth), minX)
+            posY = max(min(infoY + infoBH + gap, maxY - myHeight), minY)
+        } else {
+            posX = infoX + infoBW + gap
+
+            let infoBubbleAboveDayLine = currentDayMid >= size.height / 2
+            let rawPosY = infoBubbleAboveDayLine
+                ? infoY + infoBH - myHeight
+                : infoY
+
+            let topLimit = youAreHereTopLimit + 4
+            let bottomLimit = youAreHereBottomLimit - 4
+            posY = max(min(rawPosY, bottomLimit - myHeight), topLimit)
+        }
+
+        return VStack(alignment: .leading, spacing: 2) {
+            if !line1.isEmpty {
+                Text(line1)
+            }
+            if !line2.isEmpty {
+                Text(line2)
+            }
+        }
+        .font(.system(size: fontSize))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+        .fixedSize()
+        .background(GeometryReader { proxy in
+            Color.clear.onAppear { youAreHereBubbleWidth = proxy.size.width }
+                .onChange(of: proxy.size.width) { youAreHereBubbleWidth = $0 }
+        })
+        .offset(x: posX, y: posY)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .allowsHitTesting(false)
+        .opacity(line1.isEmpty && line2.isEmpty ? 0 : 1)
     }
 
     // MARK: - Bubble Size Precomputation
@@ -537,29 +741,4 @@ struct DaylightChartView: View {
         )
     }
 
-    // MARK: - DST Dashed Lines
-
-    private func drawDSTLines(context: inout GraphicsContext, layout: ChartLayout, from: Int, to: Int, dstOffsetSeconds: Int, hourColor: Color) {
-        let dstOffsetMinutes = Double(dstOffsetSeconds) / 60.0
-        let dashStyle = StrokeStyle(lineWidth: 0.5, dash: [4, 4])
-
-        for hour in [6, 12, 18] {
-            let minutes = Double(hour) * 60.0 + dstOffsetMinutes
-            guard minutes >= 0 && minutes <= 1440 else { continue }
-            let t = layout.timePos(minutes)
-
-            let dayStart = layout.dayPos(from)
-            let dayEnd = layout.dayEndPos(to)
-
-            var path = Path()
-            if layout.isLandscape {
-                path.move(to: CGPoint(x: dayStart, y: t))
-                path.addLine(to: CGPoint(x: dayEnd, y: t))
-            } else {
-                path.move(to: CGPoint(x: t, y: dayStart))
-                path.addLine(to: CGPoint(x: t, y: dayEnd))
-            }
-            context.stroke(path, with: .color(hourColor.opacity(0.5)), style: dashStyle)
-        }
-    }
 }
