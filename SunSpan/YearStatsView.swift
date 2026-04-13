@@ -38,8 +38,8 @@ struct YearStatsView: View {
                 .padding(.bottom, 12)
 
                 Text(state.locationName)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.body)
+                    .foregroundStyle(.white)
                     .shadow(color: .black, radius: 2)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -48,8 +48,8 @@ struct YearStatsView: View {
                     .padding(.horizontal, 20)
 
                 Text(verbatim: "\(formatDMS(state.latitude, isLat: true))  \(formatDMS(state.longitude, isLat: false))")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .font(.body)
+                    .foregroundStyle(.white)
                     .shadow(color: .black, radius: 2)
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
@@ -57,26 +57,56 @@ struct YearStatsView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 12)
 
-                ScrollView {
-                    SelectableText(text: statsText, font: .preferredFont(forTextStyle: .body), color: .white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 8)
-                }
+                statsTable
+                    .padding(.horizontal, 20)
             }
         }
     }
 
-    private var statsText: String {
+    private var statsTable: some View {
         let stats = YearStats.compute(from: state.dayLightData)
-        return Self.format(stats)
+        let rows = Self.buildRows(stats)
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+
+        let labelWidth = rows.map { ($0.0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        let valueWidth = rows.map {
+            $0.1.components(separatedBy: "\n")
+                .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
+                .max() ?? 0
+        }.max() ?? 0
+        let gap: CGFloat = 12
+
+        return GeometryReader { geo in
+            let available = geo.size.width
+            let fits = labelWidth + gap + valueWidth <= available
+            let lw = fits ? labelWidth : (available - gap) / 2
+            let vw = fits ? valueWidth : (available - gap) / 2
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                        HStack(alignment: .top, spacing: gap) {
+                            Text(row.0)
+                                .foregroundStyle(.white.opacity(0.7))
+                                .frame(width: lw, alignment: .leading)
+                            Text(row.1)
+                                .foregroundStyle(.white)
+                                .frame(width: vw, alignment: .leading)
+                        }
+                        .font(.subheadline)
+                        .padding(.vertical, 6)
+                    }
+                }
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .textSelection(.enabled)
+            }
+        }
     }
 
-    private static func format(_ stats: YearStats) -> String {
+    private static func buildRows(_ stats: YearStats) -> [(String, String)] {
         let locale = Locale.current
 
-        // Stored dates are UTC midnight of each calendar day, so formatting
-        // them in UTC yields the correct wall-date.
         let dateFormatter = DateFormatter()
         dateFormatter.locale = locale
         dateFormatter.timeZone = TimeZone(identifier: "UTC")!
@@ -121,19 +151,16 @@ struct YearStatsView: View {
 
         func timeAndDate(_ info: DayLightInfo?, minutes keyPath: KeyPath<DayLightInfo, Double?>) -> String {
             guard let info else { return "—" }
-            return "\(timeStr(info[keyPath: keyPath])) · \(dateStr(info.date))"
+            return "\(timeStr(info[keyPath: keyPath]))\n\(dateStr(info.date))"
         }
 
         func dayRowValue(_ info: DayLightInfo?, hours: Double) -> String {
             guard let info else { return "—" }
             var parts = [durationStr(hours: hours), dateStr(info.date)]
             if let range = timeRangeStr(info) { parts.append(range) }
-            return parts.joined(separator: " · ")
+            return parts.joined(separator: "\n")
         }
 
-        // Precise continuous-daylight duration: the transition-in day
-        // contributes (1440 − sunrise) minutes, middle days are full 1440,
-        // and the transition-out day contributes its sunset minutes.
         func polarRunValue(_ run: PolarRun) -> String {
             let startMin = max(0, min(1440, run.start.sunrise ?? 0))
             let endMin = max(0, min(1440, run.end.sunset ?? 1440))
@@ -147,14 +174,14 @@ struct YearStatsView: View {
             dcf.allowedUnits = [.day, .hour, .minute]
             dcf.unitsStyle = .abbreviated
             let duration = dcf.string(from: totalMin * 60) ?? "\(Int(totalMin / 1440))"
-            return "\(duration) · \(dateStr(run.start.date)) – \(dateStr(run.end.date))"
+            return "\(duration)\n\(dateStr(run.start.date)) – \(dateStr(run.end.date))"
         }
 
         func equinoxRowValue(_ info: DayLightInfo?) -> String {
             guard let info else { return "—" }
             var parts = [dateStr(info.date)]
             if let range = timeRangeStr(info) { parts.append(range) }
-            return parts.joined(separator: " · ")
+            return parts.joined(separator: "\n")
         }
 
         var rows: [(String, String)] = []
@@ -175,16 +202,11 @@ struct YearStatsView: View {
             (String(localized: "Earliest sunset"), timeAndDate(stats.earliestSunset, minutes: \.sunset)),
             (String(localized: "Latest sunset"), timeAndDate(stats.latestSunset, minutes: \.sunset)),
         ])
-        // In polar regions with a midnight-sun stretch, the "longest day" is
-        // that continuous polar day; show its total duration instead of a
-        // 24 h entry plucked from the middle of the stretch.
         if let run = stats.longestPolarDayRun {
             rows.append((String(localized: "Longest day"), polarRunValue(run)))
         } else {
             rows.append((String(localized: "Longest day"), dayRowValue(stats.longestDay, hours: stats.longestDayHours)))
         }
-        // "Shortest day" is meaningless where polar night exists (the shortest
-        // is trivially 0 h). Omit the row in that case.
         if stats.daysWithoutSunrise == 0 {
             rows.append((String(localized: "Shortest day"), dayRowValue(stats.shortestDay, hours: stats.shortestDayHours)))
         }
@@ -194,35 +216,7 @@ struct YearStatsView: View {
             (String(localized: "Autumn equinox"), equinoxRowValue(stats.autumnEquinox)),
         ])
 
-        return rows.map { "\($0.0): \($0.1)" }.joined(separator: "\n")
-    }
-}
-
-// MARK: - Selectable Text
-
-/// Read-only multiline text backed by UITextView so selection and copy work
-/// reliably inside a SwiftUI ScrollView.
-private struct SelectableText: UIViewRepresentable {
-    let text: String
-    let font: UIFont
-    let color: UIColor
-
-    func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isSelectable = true
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .clear
-        tv.textContainerInset = .zero
-        tv.textContainer.lineFragmentPadding = 0
-        tv.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return tv
-    }
-
-    func updateUIView(_ uiView: UITextView, context: Context) {
-        uiView.font = font
-        uiView.textColor = color
-        uiView.text = text
+        return rows
     }
 }
 

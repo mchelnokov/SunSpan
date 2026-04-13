@@ -134,11 +134,23 @@ func formatDMS(_ value: Double, isLat: Bool) -> String {
     return "\(deg)\u{00B0}\(min)\u{2032}\(sec)\u{2033} \(dir)"
 }
 
+private struct ControlsBottomKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct InfoButtonTopKey: PreferenceKey {
+    static var defaultValue: CGFloat = CGFloat.infinity
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = min(value, nextValue()) }
+}
+
 struct ContentView: View {
     @StateObject private var state = AppState()
     @State private var flipAngle: Double = 0
     @State private var settingsOpenCounter: Int = 0
     @State private var backFace: BackFace = .settings
+    @State private var controlsBottomY: CGFloat = 0
+    @State private var infoButtonTopY: CGFloat = .infinity
 
     var body: some View {
         GeometryReader { geo in
@@ -169,7 +181,11 @@ struct ContentView: View {
                         data: state.dayLightData,
                         year: state.year,
                         timeZone: state.effectiveTimeZone,
-                        dstEnabled: state.dstEnabled
+                        dstEnabled: state.dstEnabled,
+                        showCurrentMoment: isShowingCurrentMoment,
+                        youAreHereTopLimit: controlsBottomY,
+                        youAreHereBottomLimit: infoButtonTopY,
+                        parentSafeAreaInsets: geo.safeAreaInsets
                     )
 
                     VStack(alignment: .trailing, spacing: 6) {
@@ -179,6 +195,10 @@ struct ContentView: View {
                             yearControl
                             locationLabel
                             coordinatesLabel
+                                .background(GeometryReader { proxy in
+                                    Color.clear.preference(key: ControlsBottomKey.self,
+                                                           value: proxy.frame(in: .global).maxY)
+                                })
                         }
                         Spacer()
                         if isLandscape {
@@ -193,11 +213,17 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                     statsButton
+                        .background(GeometryReader { proxy in
+                            Color.clear.preference(key: InfoButtonTopKey.self,
+                                                   value: proxy.frame(in: .global).minY)
+                        })
                         .padding(isLandscape ? .leading : .trailing, 14)
                         .padding(.bottom, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: isLandscape ? .bottomLeading : .bottomTrailing)
                 }
+                .onPreferenceChange(ControlsBottomKey.self) { controlsBottomY = $0 }
+                .onPreferenceChange(InfoButtonTopKey.self) { infoButtonTopY = $0 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 .opacity(flipAngle < 90 ? 1 : 0)
                 .allowsHitTesting(flipAngle < 90)
@@ -207,6 +233,13 @@ struct ContentView: View {
         .onChange(of: state.locationManager.didResolve) { _ in
             state.initFromDeviceLocationIfNeeded()
         }
+    }
+
+    private var isShowingCurrentMoment: Bool {
+        guard state.year == Calendar.current.component(.year, from: Date()) else { return false }
+        guard let loc = state.locationManager.lastLocation else { return false }
+        return abs(state.latitude - loc.coordinate.latitude) < 0.05
+            && abs(state.longitude - loc.coordinate.longitude) < 0.05
     }
 
     private var yearControl: some View {
