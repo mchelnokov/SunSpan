@@ -7,6 +7,8 @@ An iOS and iPadOS app that renders an entire year of sunrise, sunset, and twilig
 - Full-year daylight chart for any location, any year from 1900 to 2100
 - Eight-stop twilight gradient: night, astronomical, nautical, civil, day
 - Tap or drag any day on the chart to inspect sunrise, sunset, daylight length, and twilight phase times in a detail bubble
+- Moon phase rendered next to each day's detail, with the terminator computed from the synodic month and oriented for the viewer's hemisphere
+- "You are here" dot marks the current moment on the chart, with a live readout of time until sunset or since sunrise (and polar day/night countdown to the next sunrise or sunset at high latitudes)
 - Year stats page with totals, earliest/latest sunrise and sunset, longest/shortest day, average day length, equinoxes, and polar-aware metrics for midnight-sun locations
 - Daylight Saving Time transitions marked on the chart, with a toggle to view in standard time
 - Coordinates displayed on the chart
@@ -18,7 +20,7 @@ An iOS and iPadOS app that renders an entire year of sunrise, sunset, and twilig
 - All settings persist between launches
 - Page-flip transition between the chart and settings
 - Orientation-aware layout for portrait and landscape
-- Localized in 18 languages: English, Czech, Danish, German, Spanish, Finnish, French, Icelandic, Italian, Japanese, Korean, Norwegian Bokmål, Polish, Brazilian Portuguese, Slovak, Swedish, Ukrainian, and Simplified Chinese
+- Localized in 20 languages: English, Arabic, Czech, Danish, German, Spanish, Finnish, French, Hebrew, Icelandic, Italian, Japanese, Korean, Norwegian Bokmål, Polish, Brazilian Portuguese, Slovak, Swedish, Ukrainian, and Simplified Chinese
 - Solar calculations based on the NOAA solar position algorithm
 
 ## Privacy
