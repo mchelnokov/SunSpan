@@ -88,6 +88,7 @@ struct DaylightChartView: View {
     let data: [DayLightInfo]
     let year: Int
     let timeZone: TimeZone
+    var latitude: Double = 0
     var dstEnabled: Bool = true
     var showCurrentMoment: Bool = false
     var youAreHereTopLimit: CGFloat = 0
@@ -398,21 +399,25 @@ struct DaylightChartView: View {
         x = min(max(x, minX), maxX - bubbleWidth)
         y = min(max(y, minY), maxY - bubbleHeight)
 
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(dateStr)
-                .fontWeight(.semibold)
-            HStack(spacing: 6) {
-                Image(systemName: "sunrise")
-                Text(sunriseStr)
+        return HStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(dateStr)
+                    .fontWeight(.semibold)
+                HStack(spacing: 6) {
+                    Image(systemName: "sunrise")
+                    Text(sunriseStr)
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: "sunset")
+                    Text(sunsetStr)
+                }
+                HStack(spacing: 6) {
+                    Image(systemName: "sun.max")
+                    Text(dayLength)
+                }
             }
-            HStack(spacing: 6) {
-                Image(systemName: "sunset")
-                Text(sunsetStr)
-            }
-            HStack(spacing: 6) {
-                Image(systemName: "sun.max")
-                Text(dayLength)
-            }
+            Spacer(minLength: Self.moonSpacing)
+            moonView(diameter: fontSize * Self.moonDiameterFactor, date: day.date)
         }
         .font(.system(size: fontSize))
         .foregroundStyle(.white)
@@ -422,6 +427,38 @@ struct DaylightChartView: View {
         .position(x: x + bubbleWidth / 2, y: y + bubbleHeight / 2)
         .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.15), value: selectedIndex)
+    }
+
+    private static let moonDiameterFactor: CGFloat = 3
+    private static let moonSpacing: CGFloat = 12
+
+    private func moonView(diameter: CGFloat, date: Date) -> some View {
+        let phase = moonPhase(for: date)
+        return Image("Moon")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: diameter, height: diameter)
+            .overlay(
+                MoonShadow(illumination: phase.illumination, waxing: phase.waxing)
+                    .fill(Color.black.opacity(0.8))
+                    .blur(radius: diameter * 0.05)
+                    .clipShape(Circle())
+            )
+            .rotationEffect(.degrees(latitude < 0 ? 180 : 0))
+    }
+
+    // Reference new moon: 2000-01-06 18:14 UT (JD 2451550.1).
+    // Synodic month is the mean lunation length; good enough for visualization.
+    private static let referenceNewMoonJD: Double = 2451550.1
+    private static let synodicMonth: Double = 29.530588853
+
+    private func moonPhase(for date: Date) -> (illumination: Double, waxing: Bool) {
+        let jd = date.timeIntervalSince1970 / 86400.0 + 2440587.5
+        var phase = ((jd - Self.referenceNewMoonJD) / Self.synodicMonth)
+            .truncatingRemainder(dividingBy: 1.0)
+        if phase < 0 { phase += 1 }
+        let illumination = (1 - cos(2 * .pi * phase)) / 2
+        return (illumination, phase < 0.5)
     }
 
     // MARK: - "You Are Here" Bubble
@@ -678,7 +715,9 @@ struct DaylightChartView: View {
         let row3 = sunsetIcon + hSpacing + maxSunset
         let row4 = sunIcon + hSpacing + maxDayLen
 
-        let contentWidth = max(row1, row2, row3, row4)
+        let textWidth = max(row1, row2, row3, row4)
+        let moonDiameter = fontSize * Self.moonDiameterFactor
+        let contentWidth = textWidth + Self.moonSpacing + moonDiameter
         let lineHeight = regular.lineHeight
         let vSpacing: CGFloat = 6
         let contentHeight = lineHeight * 4 + vSpacing * 3
@@ -741,4 +780,48 @@ struct DaylightChartView: View {
         )
     }
 
+}
+
+// Shadow region of a moon disc for a given illumination fraction (0…1).
+// Bounded by the dark hemisphere of the disc and the terminator ellipse,
+// whose horizontal radius is r·|1−2k|: collapses to a vertical line at
+// quarter, expands to the disc itself at new/full.
+private struct MoonShadow: Shape {
+    let illumination: Double
+    let waxing: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(rect.width, rect.height) / 2
+        let cx = rect.midX
+        let cy = rect.midY
+        let d: CGFloat = waxing ? 1 : -1
+        let a = CGFloat(1 - 2 * illumination) * r
+        let kappa: CGFloat = 0.5522847498
+
+        var path = Path()
+        path.move(to: CGPoint(x: cx, y: cy - r))
+
+        path.addArc(
+            center: CGPoint(x: cx, y: cy),
+            radius: r,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(90),
+            clockwise: waxing
+        )
+
+        let bellyX = cx + d * a
+        let dx = bellyX - cx
+        path.addCurve(
+            to: CGPoint(x: bellyX, y: cy),
+            control1: CGPoint(x: cx + kappa * dx, y: cy + r),
+            control2: CGPoint(x: bellyX, y: cy + kappa * r)
+        )
+        path.addCurve(
+            to: CGPoint(x: cx, y: cy - r),
+            control1: CGPoint(x: bellyX, y: cy - kappa * r),
+            control2: CGPoint(x: cx + kappa * dx, y: cy - r)
+        )
+        path.closeSubpath()
+        return path
+    }
 }

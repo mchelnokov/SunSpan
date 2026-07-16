@@ -26,9 +26,18 @@ class AppState: ObservableObject {
     @Published var locationName: String = defaults.string(forKey: "locationName") ?? String(localized: "New York", comment: "Default location name shown before device location resolves") {
         didSet { Self.defaults.set(locationName, forKey: "locationName") }
     }
+    /// Locale marker captured at the last successful geocode. Used to detect
+    /// system-language changes between launches so the cached `locationName`
+    /// (which is the placemark's localized string, not the coordinates) can
+    /// be refreshed in the new language.
+    @Published var localeAtLastGeocode: String = defaults.string(forKey: "localeAtLastGeocode") ?? "" {
+        didSet { Self.defaults.set(localeAtLastGeocode, forKey: "localeAtLastGeocode") }
+    }
     @Published var dstEnabled: Bool = defaults.object(forKey: "dstEnabled") as? Bool ?? true {
         didSet { Self.defaults.set(dstEnabled, forKey: "dstEnabled") }
     }
+
+    private static var currentLocaleMarker: String { Locale.preferredLanguages.first ?? "" }
 
     @Published var dayLightData: [DayLightInfo] = []
     let locationManager = LocationManager()
@@ -47,10 +56,32 @@ class AppState: ObservableObject {
         let hasSavedLocation = Self.defaults.object(forKey: "latitude") != nil
         if hasSavedLocation {
             didInitFromDevice = true
+            if localeAtLastGeocode != Self.currentLocaleMarker {
+                refreshLocationNameForLocaleChange()
+            }
         } else {
             locationManager.requestLocation()
         }
         recalculate()
+    }
+
+    /// Reverse-geocode the persisted coordinates so the cached `locationName`
+    /// matches the current system language. Called from `init` when the locale
+    /// marker doesn't match the current preferred language. Updates the marker
+    /// regardless of success — a transient geocoder failure shouldn't cause us
+    /// to retry on every launch.
+    private func refreshLocationNameForLocaleChange() {
+        let location = CLLocation(latitude: latitude, longitude: longitude)
+        geocoder.cancelGeocode()
+        geocoder.reverseGeocodeLocation(location) { [self] placemarks, _ in
+            DispatchQueue.main.async {
+                if let placemark = placemarks?.first,
+                   let name = AppState.formatPlacemarkName(placemark) {
+                    self.locationName = name
+                }
+                self.localeAtLastGeocode = Self.currentLocaleMarker
+            }
+        }
     }
 
     func initFromDeviceLocationIfNeeded() {
@@ -71,6 +102,7 @@ class AppState: ObservableObject {
                     self.selectedTimeZone = TimeZone.current
                     self.locationName = String(localized: "Current Location")
                 }
+                self.localeAtLastGeocode = Self.currentLocaleMarker
                 self.recalculate()
             }
         }
@@ -181,6 +213,7 @@ struct ContentView: View {
                         data: state.dayLightData,
                         year: state.year,
                         timeZone: state.effectiveTimeZone,
+                        latitude: state.latitude,
                         dstEnabled: state.dstEnabled,
                         showCurrentMoment: isShowingCurrentMoment,
                         youAreHereTopLimit: controlsBottomY,
